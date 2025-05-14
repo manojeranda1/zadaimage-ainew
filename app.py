@@ -27,8 +27,20 @@ MODEL_PATH = os.path.join("models", "ormbg.pth")
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 try:
+    # Log file info for debugging
+    if os.path.exists(MODEL_PATH):
+        logger.info(f"Model file exists: {MODEL_PATH}, size: {os.path.getsize(MODEL_PATH)} bytes")
+    else:
+        raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
+
     model = ORMBG()
-    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=True)
+    try:
+        state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=True)
+    except Exception as e:
+        logger.warning(f"Weights-only load failed: {str(e)}. Attempting weights_only=False (trusted source only).")
+        # Only use weights_only=False if you trust the source
+        state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+    
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
