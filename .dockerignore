@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.vscode
+.env
+venv/
+dist/
+build/
+*.log
+*.swp
