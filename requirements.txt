@@ -1,7 +1,7 @@
-Flask
-Flask-Cors
-torch # Installs the CPU version by default on standard Docker builds
-numpy
-Pillow
-scikit-image
-werkzeug # Although usually included with Flask, listing it is fine
+flask==2.3.3
+flask-cors==4.0.0
+pillow==10.4.0
+torch==2.0.1
+numpy==1.26.4
+scikit-image==0.22.0
+werkzeug==3.0.3

@@ -125,7 +125,7 @@
             formData.append('image', imageInput.files[0]);
 
             try {
-                const response = await fetch('https://zadaai-tools-docker-registry.hnxdau.easypanel.host/api/resize-image', {
+                const response = await fetch('/api/resize-image', {
                     method: 'POST',
                     body: formData
                 });
