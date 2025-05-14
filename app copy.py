@@ -9,14 +9,9 @@ from skimage import io as skio
 import torch.nn.functional as F
 from models.ormbg import ORMBG
 from werkzeug.utils import secure_filename
-import logging
 
 app = Flask(__name__, static_url_path='', static_folder='static')
 CORS(app)
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Config
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
@@ -26,15 +21,10 @@ MODEL_PATH = os.path.join("models", "ormbg.pth")
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-try:
-    model = ORMBG()
-    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=True)
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
-except Exception as e:
-    logger.error(f"Failed to load model: {str(e)}")
-    raise
+model = ORMBG()
+model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=False))
+model.to(device)
+model.eval()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -81,29 +71,25 @@ def postprocess_image(result: torch.Tensor, im_size: list) -> np.ndarray:
     return im_array
 
 def remove_background_with_ormbg(image_stream):
-    try:
-        # Read image and convert
-        orig_image = Image.open(image_stream).convert("RGB")
-        orig_np = np.array(orig_image)
-        orig_size = orig_np.shape[0:2]
+    # Read image and convert
+    orig_image = Image.open(image_stream).convert("RGB")
+    orig_np = np.array(orig_image)
+    orig_size = orig_np.shape[0:2]
 
-        # Preprocess and infer
-        image = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
-        with torch.no_grad():
-            result = model(image)
+    # Preprocess and infer
+    image = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
+    with torch.no_grad():
+        result = model(image)
 
-        # Post-process result mask
-        result_mask = postprocess_image(result[0][0], orig_size)
+    # Post-process result mask
+    result_mask = postprocess_image(result[0][0], orig_size)
 
-        # Create RGBA image with transparency
-        alpha_mask = Image.fromarray(result_mask).convert("L")
-        rgba_image = orig_image.convert("RGBA")
-        rgba_image.putalpha(alpha_mask)
+    # Create RGBA image with transparency
+    alpha_mask = Image.fromarray(result_mask).convert("L")
+    rgba_image = orig_image.convert("RGBA")
+    rgba_image.putalpha(alpha_mask)
 
-        return rgba_image
-    except Exception as e:
-        logger.error(f"Background removal error: {str(e)}")
-        raise
+    return rgba_image
 
 @app.route('/api/remove-background', methods=['POST'])
 def remove_background():
@@ -120,7 +106,7 @@ def remove_background():
         # Resize and center result
         result_ratio = min(OUTPUT_SIZE[0]/result_img.width, OUTPUT_SIZE[1]/result_img.height)
         new_size = (int(result_img.width * result_ratio), int(result_img.height * result_ratio))
-        resized = result_img.resize(new_size, Image.Resampling.LANCZOS)
+        resized = result_img.resize(new_size, Image.LANCZOS)
 
         final_image = Image.new('RGBA', OUTPUT_SIZE, (0, 0, 0, 0))
         position = ((OUTPUT_SIZE[0] - new_size[0]) // 2, (OUTPUT_SIZE[1] - new_size[1]) // 2)
@@ -136,9 +122,7 @@ def remove_background():
             download_name=f"nobg_{secure_filename(file.filename)}"
         )
     except Exception as e:
-        logger.error(f"Background removal endpoint error: {str(e)}")
         return jsonify({"error": f"Background removal failed: {str(e)}"}), 500
-
 @app.route('/api/resize-image', methods=['POST'])
 def resize_image():
     if 'image' not in request.files:
@@ -156,8 +140,7 @@ def resize_image():
             download_name=f"resized_{secure_filename(file.filename)}"
         )
     except Exception as e:
-        logger.error(f"Resize endpoint error: {str(e)}")
-        return jsonify({"error": f"Image resize failed: {str(e)}"}), 500
+        return jsonify({"error": "Image resize failed"}), 500
     
 @app.route('/health')
 def health_check():

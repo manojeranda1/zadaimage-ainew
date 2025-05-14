@@ -1,5 +1,5 @@
-# Use a CUDA-enabled base image for PyTorch with GPU support
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+# Use a slim Python 3.10 base image for CPU-only deployment
+FROM python:3.10-slim
 
 # Set working directory
 WORKDIR /app
@@ -16,9 +16,10 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code and model
+# Copy application code and model files
 COPY app.py .
-COPY models/ ./models/
+COPY models/ormbg.py ./models/
+COPY models/ormbg.pth ./models/
 COPY static/ ./static/
 
 # Expose port 5000
