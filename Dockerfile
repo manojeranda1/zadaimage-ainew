@@ -1,4 +1,4 @@
-# Use a slim Python 3.10 base image
+# Use a slim Python 3.10 base image for CPU-only deployment
 FROM python:3.10-slim
 
 # Set working directory
@@ -16,8 +16,9 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and model files
 COPY app.py .
+COPY models/ ./models/
 COPY static/ ./static/
 
 # Expose port 5000
