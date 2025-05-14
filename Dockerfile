@@ -1,4 +1,4 @@
-# Use a slim Python 3.10 base image for CPU-only deployment
+# Use a slim Python 3.10 base image
 FROM python:3.10-slim
 
 # Set working directory
@@ -16,10 +16,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code and model files
+# Copy application code
 COPY app.py .
-COPY models/ormbg.py ./models/
-COPY models/ormbg.pth ./models/
 COPY static/ ./static/
 
 # Expose port 5000

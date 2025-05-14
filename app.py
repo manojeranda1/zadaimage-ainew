@@ -2,12 +2,9 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import io
-import torch
 import numpy as np
-from PIL import Image
-from skimage import io as skio
-import torch.nn.functional as F
-from models.ormbg import ORMBG
+from PIL import Image, ImageFilter
+import rembg
 from werkzeug.utils import secure_filename
 import logging
 
@@ -21,20 +18,10 @@ logger = logging.getLogger(__name__)
 # Config
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 OUTPUT_SIZE = (2000, 2000)
-MODEL_INPUT_SIZE = [1024, 1024]
-MODEL_PATH = os.path.join("models", "ormbg.pth")
+MAX_PROCESSING_SIZE = 1024
 
-# Load model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-try:
-    model = ORMBG()
-    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=True)
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
-except Exception as e:
-    logger.error(f"Failed to load model: {str(e)}")
-    raise
+# Initialize rembg session
+session = rembg.new_session(model_name="u2netp")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -61,46 +48,48 @@ def process_resize(image_data):
         logger.error(f"Resize error: {str(e)}")
         raise
 
-def preprocess_image(im: np.ndarray, model_input_size: list) -> torch.Tensor:
-    if len(im.shape) < 3:
-        im = im[:, :, np.newaxis]
-    im_tensor = torch.tensor(im, dtype=torch.float32).permute(2, 0, 1)
-    im_tensor = F.interpolate(
-        torch.unsqueeze(im_tensor, 0), size=model_input_size, mode="bilinear"
-    ).type(torch.uint8)
-    image = torch.divide(im_tensor, 255.0)
-    return image
-
-def postprocess_image(result: torch.Tensor, im_size: list) -> np.ndarray:
-    result = torch.squeeze(F.interpolate(result, size=im_size, mode="bilinear"), 0)
-    ma = torch.max(result)
-    mi = torch.min(result)
-    result = (result - mi) / (ma - mi)
-    im_array = (result * 255).permute(1, 2, 0).cpu().data.numpy().astype(np.uint8)
-    im_array = np.squeeze(im_array)
-    return im_array
-
-def remove_background_with_ormbg(image_stream):
+def process_bg_removal(image_data):
     try:
-        # Read image and convert
-        orig_image = Image.open(image_stream).convert("RGB")
-        orig_np = np.array(orig_image)
-        orig_size = orig_np.shape[0:2]
+        # Open the input image
+        input_image = Image.open(io.BytesIO(image_data)).convert('RGBA')
 
-        # Preprocess and infer
-        image = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
-        with torch.no_grad():
-            result = model(image)
+        # Pre-resize image to reduce memory usage
+        input_image.thumbnail((MAX_PROCESSING_SIZE, MAX_PROCESSING_SIZE), Image.Resampling.BICUBIC)
 
-        # Post-process result mask
-        result_mask = postprocess_image(result[0][0], orig_size)
+        # Perform background removal with alpha matting
+        output = rembg.remove(
+            input_image,
+            session=session,
+            alpha_matting=True,
+            alpha_matting_foreground_threshold=240,
+            alpha_matting_background_threshold=10,
+            alpha_matting_erode_size=5
+        )
+        output = output.convert('RGBA')
 
-        # Create RGBA image with transparency
-        alpha_mask = Image.fromarray(result_mask).convert("L")
-        rgba_image = orig_image.convert("RGBA")
-        rgba_image.putalpha(alpha_mask)
+        # Optimize alpha channel thresholding
+        r, g, b, a = output.split()
+        a = a.point(lambda x: 255 if x > 200 else 0)
+        output = Image.merge('RGBA', (r, g, b, a))
 
-        return rgba_image
+        # Apply sharpening to enhance edges
+        output = output.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+
+        # Resize to output size
+        output_ratio = min(OUTPUT_SIZE[0] / output.width, OUTPUT_SIZE[1] / output.height)
+        new_size = (int(output.width * output_ratio), int(output.height * output_ratio))
+        resized_output = output.resize(new_size, Image.Resampling.BICUBIC)
+
+        # Create final image with transparent background
+        final_image = Image.new('RGBA', OUTPUT_SIZE, (0, 0, 0, 0))
+        position = ((OUTPUT_SIZE[0] - new_size[0]) // 2, (OUTPUT_SIZE[1] - new_size[1]) // 2)
+        final_image.paste(resized_output, position, resized_output)
+
+        # Save to bytes
+        output_bytes = io.BytesIO()
+        final_image.save(output_bytes, format='PNG', optimize=True)
+        output_bytes.seek(0)
+        return output_bytes
     except Exception as e:
         logger.error(f"Background removal error: {str(e)}")
         raise
@@ -115,23 +104,9 @@ def remove_background():
         return jsonify({"error": "Invalid file"}), 400
 
     try:
-        result_img = remove_background_with_ormbg(file.stream)
-
-        # Resize and center result
-        result_ratio = min(OUTPUT_SIZE[0]/result_img.width, OUTPUT_SIZE[1]/result_img.height)
-        new_size = (int(result_img.width * result_ratio), int(result_img.height * result_ratio))
-        resized = result_img.resize(new_size, Image.Resampling.LANCZOS)
-
-        final_image = Image.new('RGBA', OUTPUT_SIZE, (0, 0, 0, 0))
-        position = ((OUTPUT_SIZE[0] - new_size[0]) // 2, (OUTPUT_SIZE[1] - new_size[1]) // 2)
-        final_image.paste(resized, position, resized)
-
-        img_bytes = io.BytesIO()
-        final_image.save(img_bytes, format='PNG')
-        img_bytes.seek(0)
-
+        processed_image = process_bg_removal(file.read())
         return send_file(
-            img_bytes,
+            processed_image,
             mimetype='image/png',
             download_name=f"nobg_{secure_filename(file.filename)}"
         )
@@ -161,7 +136,7 @@ def resize_image():
     
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "ok", "model": "ormbg"})
+    return jsonify({"status": "ok", "model": "u2netp"})
 
 @app.route('/')
 def index():
