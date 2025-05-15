@@ -50,7 +50,8 @@ try:
     model = ORMBG()
 
     # Load state_dict directly
-    state_dict = torch.load(MODEL_PATH, map_location=device)
+    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+
     if not isinstance(state_dict, dict):
         raise TypeError("The loaded model is not a state_dict. Please check the model file.")
     
