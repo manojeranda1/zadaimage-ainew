@@ -1,6 +1,6 @@
 flask==2.3.3
 flask-cors==4.0.0
-torch==2.1.2      # Or match your installed CUDA version
+torch==2.2.2      # Or match your installed CUDA version
 numpy==1.24.4
 pillow==10.2.0
 scikit-image==0.22.0
