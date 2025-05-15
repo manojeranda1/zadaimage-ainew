@@ -1,28 +1,23 @@
-# Use a slim Python 3.10 base image for CPU-only deployment
+# Use an official Python runtime (CPU version)
 FROM python:3.10-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements file
-COPY requirements.txt .
+# Copy app files
+COPY . /app
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code and model files
-COPY app.py .
-COPY models/ ./models/
-COPY static/ ./static/
-
-# Expose port 5000
+# Expose the port
 EXPOSE 5000
 
-# Command to run the Flask application
+# Start the Flask app
 CMD ["python", "app.py"]
