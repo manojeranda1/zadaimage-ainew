@@ -1,21 +1,5 @@
-# Use a valid PyTorch CPU image with Python 3.10
 FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
-
-# Set working directory
 WORKDIR /app
-
-# Copy everything into the container
-COPY . .
-
-# Install required packages
-RUN pip install --upgrade pip && \
-    pip install flask flask-cors pillow scikit-image
-
-# Ensure model file exists
-RUN test -f models/ormbg.pth || (echo "Missing model file: models/ormbg.pth" && exit 1)
-
-# Expose port for Flask
-EXPOSE 5000
-
-# Start the Flask app
+COPY . /app
+RUN pip install flask flask-cors pillow scikit-image werkzeug
 CMD ["python", "app.py"]
