@@ -10,98 +10,89 @@ from werkzeug.utils import secure_filename
 import logging
 import urllib.request
 
-# Create models folder and download model files if not already present
-os.makedirs("models", exist_ok=True)
+# === CONFIGURATION ===
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+OUTPUT_SIZE = (2000, 2000)
+MODEL_INPUT_SIZE = [1024, 1024]
+MODEL_FOLDER = "models"
+MODEL_FILENAME = "ormbg.pth"
+MODEL_PATH = os.path.join(MODEL_FOLDER, MODEL_FILENAME)
 
-ormbg_py_path = os.path.join("models", "ormbg.py")
-ormbg_pth_path = os.path.join("models", "ormbg.pth")
-
-if not os.path.exists(ormbg_py_path):
-    urllib.request.urlretrieve("https://saas.zada.lk/models/ormbg.py", ormbg_py_path)
-
-if not os.path.exists(ormbg_pth_path):
-    urllib.request.urlretrieve("https://saas.zada.lk/models/ormbg.pth", ormbg_pth_path)
-
-# Import ORMBG model class dynamically after download
-from models.ormbg import ORMBG
-
+# === FLASK APP ===
 app = Flask(__name__, static_url_path='', static_folder='static')
 CORS(app)
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
-OUTPUT_SIZE = (2000, 2000)        # Final output canvas size
-MODEL_INPUT_SIZE = [1024, 1024]   # Input size expected by ORMBG model
-MODEL_PATH = ormbg_pth_path
+# === DOWNLOAD MODEL IF MISSING ===
+os.makedirs(MODEL_FOLDER, exist_ok=True)
 
+if not os.path.exists(MODEL_PATH):
+    logger.warning(f"Model file not found at {MODEL_PATH}.")
+    # You can optionally download from HuggingFace or manually
+    raise FileNotFoundError("ormbg.pth (177MB) must be placed in the 'models/' folder.")
+
+# === IMPORT MODEL ===
+from models.ormbg import ORMBG
+
+# === LOAD MODEL ===
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Load the model
 try:
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
     logger.info(f"Loading model from {MODEL_PATH}, size: {os.path.getsize(MODEL_PATH)} bytes")
 
     model = ORMBG()
-    # Load state_dict directly (weights_only=False param removed because torch.load doesn't accept it)
-    state_dict = torch.load(MODEL_PATH, map_location=device)
-    
+    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+
     if not isinstance(state_dict, dict):
-        raise TypeError("The loaded model file is not a state_dict. Please check the model file.")
-    
+        raise TypeError("Model file is not a state_dict. Confirm the model and loading logic.")
+
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
+
     logger.info("Model loaded successfully.")
 except Exception as e:
-    logger.error(f"Failed to load model: {e}")
+    logger.error(f"Failed to load model: {str(e)}")
     raise
 
+# === UTILS ===
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def preprocess_image(im: np.ndarray, model_input_size: list) -> torch.Tensor:
-    # Ensure 3 channels
-    if len(im.shape) == 2:
-        im = np.stack([im]*3, axis=-1)
+    if len(im.shape) < 3:
+        im = im[:, :, np.newaxis]
     im_tensor = torch.tensor(im, dtype=torch.float32).permute(2, 0, 1)
-    im_tensor = F.interpolate(
-        im_tensor.unsqueeze(0), size=model_input_size, mode="bilinear"
-    ).type(torch.uint8)
-    image = im_tensor.float() / 255.0
-    return image
+    im_tensor = F.interpolate(torch.unsqueeze(im_tensor, 0), size=model_input_size, mode="bilinear").type(torch.uint8)
+    return im_tensor.float() / 255.0
 
 def postprocess_image(result: torch.Tensor, im_size: list) -> np.ndarray:
-    result = F.interpolate(result.unsqueeze(0), size=im_size, mode="bilinear").squeeze(0)
-    ma, mi = result.max(), result.min()
-    normalized = (result - mi) / (ma - mi + 1e-8)  # add epsilon to avoid div by zero
-    im_array = (normalized * 255).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
-    if im_array.shape[2] == 1:
-        im_array = np.squeeze(im_array, axis=2)
-    return im_array
+    result = torch.squeeze(F.interpolate(result, size=im_size, mode="bilinear"), 0)
+    result = (result - result.min()) / (result.max() - result.min())
+    im_array = (result * 255).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+    return np.squeeze(im_array)
 
 def remove_background_with_ormbg(image_stream):
     try:
         orig_image = Image.open(image_stream).convert("RGB")
         orig_np = np.array(orig_image)
-        orig_size = orig_np.shape[:2]  # (height, width)
+        orig_size = orig_np.shape[0:2]
 
-        image = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
+        image_tensor = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
 
         with torch.no_grad():
-            result = model(image)
+            result = model(image_tensor)
 
         result_mask = postprocess_image(result[0][0], orig_size)
-
         alpha_mask = Image.fromarray(result_mask).convert("L")
+
         rgba_image = orig_image.convert("RGBA")
         rgba_image.putalpha(alpha_mask)
 
         return rgba_image
     except Exception as e:
-        logger.error(f"Background removal error: {e}")
+        logger.error(f"Background removal error: {str(e)}")
         raise
 
 def process_resize(image_data):
@@ -122,9 +113,10 @@ def process_resize(image_data):
         output_bytes.seek(0)
         return output_bytes
     except Exception as e:
-        logger.error(f"Resize error: {e}")
+        logger.error(f"Resize error: {str(e)}")
         raise
 
+# === API ROUTES ===
 @app.route('/api/remove-background', methods=['POST'])
 def remove_background():
     if 'image' not in request.files:
@@ -137,8 +129,8 @@ def remove_background():
     try:
         result_img = remove_background_with_ormbg(file.stream)
 
-        # Resize and center on transparent background
-        result_ratio = min(OUTPUT_SIZE[0] / result_img.width, OUTPUT_SIZE[1] / result_img.height)
+        # Resize and center result
+        result_ratio = min(OUTPUT_SIZE[0]/result_img.width, OUTPUT_SIZE[1]/result_img.height)
         new_size = (int(result_img.width * result_ratio), int(result_img.height * result_ratio))
         resized = result_img.resize(new_size, Image.Resampling.LANCZOS)
 
@@ -156,7 +148,7 @@ def remove_background():
             download_name=f"nobg_{secure_filename(file.filename)}"
         )
     except Exception as e:
-        logger.error(f"Background removal endpoint error: {e}")
+        logger.error(f"Background removal failed: {str(e)}")
         return jsonify({"error": f"Background removal failed: {str(e)}"}), 500
 
 @app.route('/api/resize-image', methods=['POST'])
@@ -176,8 +168,8 @@ def resize_image():
             download_name=f"resized_{secure_filename(file.filename)}"
         )
     except Exception as e:
-        logger.error(f"Resize endpoint error: {e}")
-        return jsonify({"error": f"Image resize failed: {str(e)}"}), 500
+        logger.error(f"Resize failed: {str(e)}")
+        return jsonify({"error": f"Resize failed: {str(e)}"}), 500
 
 @app.route('/health')
 def health_check():

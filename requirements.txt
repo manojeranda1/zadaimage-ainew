@@ -1,8 +1,6 @@
-flask
-flask-cors
-torch
-torchvision
-numpy
-pillow
-scikit-image
-werkzeug
+flask==2.3.2
+flask-cors==4.0.0
+torch==2.2.2
+torchvision==0.17.2
+Pillow==10.3.0
+numpy==1.26.4
