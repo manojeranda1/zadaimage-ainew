@@ -7,24 +7,9 @@ import numpy as np
 from PIL import Image
 from skimage import io as skio
 import torch.nn.functional as F
+from models.ormbg import ORMBG
 from werkzeug.utils import secure_filename
 import logging
-import urllib.request
-
-# Create models folder and download model files if not already present
-os.makedirs("models", exist_ok=True)
-
-ormbg_py_path = os.path.join("models", "ormbg.py")
-ormbg_pth_path = os.path.join("models", "ormbg.pth")
-
-if not os.path.exists(ormbg_py_path):
-    urllib.request.urlretrieve("https://saas.zada.lk/models/ormbg.py", ormbg_py_path)
-
-if not os.path.exists(ormbg_pth_path):
-    urllib.request.urlretrieve("https://saas.zada.lk/models/ormbg.pth", ormbg_pth_path)
-
-# Now import ORMBG from the downloaded ormbg.py
-from models.ormbg import ORMBG
 
 app = Flask(__name__, static_url_path='', static_folder='static')
 CORS(app)
@@ -37,7 +22,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 OUTPUT_SIZE = (2000, 2000)
 MODEL_INPUT_SIZE = [1024, 1024]
-MODEL_PATH = ormbg_pth_path
+MODEL_PATH = os.path.join("models", "ormbg.pth")
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -1,6 +1,8 @@
-torch==2.1.0
-numpy
 flask
 flask-cors
+torch
+torchvision
+numpy
 pillow
 scikit-image
+werkzeug
