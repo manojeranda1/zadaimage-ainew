@@ -22,7 +22,7 @@ MODEL_PATH = os.path.join("models", "ormbg.pth")
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = ORMBG()
-model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=False))
+model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
 model.to(device)
 model.eval()
 
