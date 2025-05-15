@@ -1,21 +1,21 @@
-# Use a lightweight PyTorch base image with CUDA or CPU support
-FROM pytorch/pytorch:2.1.0-cpu
+# Use a valid PyTorch CPU image with Python 3.10
+FROM pytorch/pytorch:2.1.0-cpu-py3.10
 
 # Set working directory
 WORKDIR /app
 
-# Copy all project files into the container
+# Copy everything into the container
 COPY . .
 
-# Install Python dependencies
+# Install required packages
 RUN pip install --upgrade pip && \
-    pip install flask flask-cors pillow scikit-image torch torchvision
+    pip install flask flask-cors pillow scikit-image
 
-# Ensure the models directory exists and the model file is included
+# Ensure model file exists
 RUN test -f models/ormbg.pth || (echo "Missing model file: models/ormbg.pth" && exit 1)
 
-# Expose port (optional, for local testing)
+# Expose port for Flask
 EXPOSE 5000
 
-# Set the entrypoint to run the Flask app
+# Start the Flask app
 CMD ["python", "app.py"]
