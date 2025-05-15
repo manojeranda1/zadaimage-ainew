@@ -1,5 +1,5 @@
 # Use a valid PyTorch CPU image with Python 3.10
-FROM pytorch/pytorch:2.1.0
+FROM pytorch/pytorch:2.1.0-runtime
 
 # Set working directory
 WORKDIR /app
