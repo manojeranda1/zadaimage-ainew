@@ -1,30 +1,21 @@
-# Use a base image with PyTorch + CUDA or CPU-only depending on your needs
-# For CPU-only:
-FROM python:3.10-slim
+# Use a lightweight PyTorch base image with CUDA or CPU support
+FROM pytorch/pytorch:2.1.0-cpu
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
-
-# Copy app files
+# Copy all project files into the container
 COPY . .
 
-# Expose port
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install flask flask-cors pillow scikit-image torch torchvision
+
+# Ensure the models directory exists and the model file is included
+RUN test -f models/ormbg.pth || (echo "Missing model file: models/ormbg.pth" && exit 1)
+
+# Expose port (optional, for local testing)
 EXPOSE 5000
 
-# Command to run the app
+# Set the entrypoint to run the Flask app
 CMD ["python", "app.py"]
