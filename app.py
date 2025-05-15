@@ -26,7 +26,7 @@ CORS(app)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 OUTPUT_SIZE = (2000, 2000)
 MODEL_INPUT_SIZE = [1024, 1024]
-MODEL_PATH = os.path.join("models", "ormbg.pth")
+MODEL_PATH = "ormbg.pth"  # Updated to point to root folder
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,7 +173,12 @@ def resize_image():
     
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "ok", "model": "ormbg"})
+    try:
+        if not os.path.exists(MODEL_PATH):
+            return jsonify({"status": "error", "error": f"Model file not found at {MODEL_PATH}"}), 500
+        return jsonify({"status": "ok", "model": "ormbg"})
+    except Exception as e:
+        return jsonify({"status": "error", "error": f"Health check failed: {str(e)}"}), 500
 
 @app.route('/')
 def index():
