@@ -9,6 +9,15 @@ from skimage import io as skio
 import torch.nn.functional as F
 from models.ormbg import ORMBG
 from werkzeug.utils import secure_filename
+import logging
+import warnings
+
+# Suppress deprecated warnings (temporary until ORMBG model is updated)
+warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn._reduction")
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_url_path='', static_folder='static')
 CORS(app)
@@ -21,11 +30,23 @@ MODEL_PATH = os.path.join("models", "ormbg.pth")
 
 # Load model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(type(device))
-model = ORMBG()
-model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-model.to(device)
-model.eval()
+logger.info(f"Using device: {device}")
+
+try:
+    # Verify model file exists
+    if not os.path.exists(MODEL_PATH):
+        logger.error(f"Model file not found at {MODEL_PATH}")
+        raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
+
+    model = ORMBG()
+    logger.info(f"Loading model from {MODEL_PATH}")
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
+    model.eval()
+    logger.info("Model loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load model: {str(e)}")
+    raise
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -72,25 +93,29 @@ def postprocess_image(result: torch.Tensor, im_size: list) -> np.ndarray:
     return im_array
 
 def remove_background_with_ormbg(image_stream):
-    # Read image and convert
-    orig_image = Image.open(image_stream).convert("RGB")
-    orig_np = np.array(orig_image)
-    orig_size = orig_np.shape[0:2]
+    try:
+        # Read image and convert
+        orig_image = Image.open(image_stream).convert("RGB")
+        orig_np = np.array(orig_image)
+        orig_size = orig_np.shape[0:2]
 
-    # Preprocess and infer
-    image = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
-    with torch.no_grad():
-        result = model(image)
+        # Preprocess and infer
+        image = preprocess_image(orig_np, MODEL_INPUT_SIZE).to(device)
+        with torch.no_grad():
+            result = model(image)
 
-    # Post-process result mask
-    result_mask = postprocess_image(result[0][0], orig_size)
+        # Post-process result mask
+        result_mask = postprocess_image(result[0][0], orig_size)
 
-    # Create RGBA image with transparency
-    alpha_mask = Image.fromarray(result_mask).convert("L")
-    rgba_image = orig_image.convert("RGBA")
-    rgba_image.putalpha(alpha_mask)
+        # Create RGBA image with transparency
+        alpha_mask = Image.fromarray(result_mask).convert("L")
+        rgba_image = orig_image.convert("RGBA")
+        rgba_image.putalpha(alpha_mask)
 
-    return rgba_image
+        return rgba_image
+    except Exception as e:
+        logger.error(f"Background removal error: {str(e)}")
+        raise
 
 @app.route('/api/remove-background', methods=['POST'])
 def remove_background():
@@ -123,7 +148,9 @@ def remove_background():
             download_name=f"nobg_{secure_filename(file.filename)}"
         )
     except Exception as e:
+        logger.error(f"Background removal failed: {str(e)}")
         return jsonify({"error": f"Background removal failed: {str(e)}"}), 500
+
 @app.route('/api/resize-image', methods=['POST'])
 def resize_image():
     if 'image' not in request.files:
@@ -141,7 +168,8 @@ def resize_image():
             download_name=f"resized_{secure_filename(file.filename)}"
         )
     except Exception as e:
-        return jsonify({"error": "Image resize failed"}), 500
+        logger.error(f"Image resize failed: {str(e)}")
+        return jsonify({"error": f"Image resize failed: {str(e)}"}), 500
     
 @app.route('/health')
 def health_check():
